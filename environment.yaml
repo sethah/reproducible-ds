@@ -1,0 +1,23 @@
+name: mflow_fun
+channels:
+- conda-forge
+- defaults
+- pytorch
+dependencies:
+- python=3.6
+- matplotlib
+- numpy
+- pandas
+- scipy
+- pytorch
+- torchvision
+- cookiecutter
+- requests
+- ignite
+- ipython
+- tqdm
+- scikit-learn
+- jupyter
+- nb_conda
+- pip:
+  - mlflow

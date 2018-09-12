@@ -1,0 +1,25 @@
+name: mlflow_fun
+
+conda_env: environment.yaml
+
+entry_points:
+  main:
+    parameters:
+      log_path: {type: string, default: ""}
+      log_file: {type: string, default: ""}
+      model_name: {type: string, default: ""}
+      checkpoint_path: {type: string, default: ""}
+      checkpoint_file: {type: string, default: ""}
+      regularization: {type: float, default: 0.1}
+      batch_size: {type: int, default: 32}
+      epochs: {type: int, default: 1}
+      restore: {type: int, default: 0}
+    command: "python src/train.py --batch-size {batch_size}
+    --epochs {epochs} --log-path {log_path} --log-file {log_file}
+    --log-interval 10
+    --checkpoint-path {checkpoint_path} --checkpoint-file {checkpoint_file} --restore {restore}
+    --model-name {model_name}"
+  validate:
+    parameters:
+      data_file: path
+    command: "python validate.py {data_file}"
