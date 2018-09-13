@@ -1,13 +1,15 @@
+import numpy as np
 import argparse
 import logging
 from pathlib import Path
-import tempfile
 
 import mlflow
+import mlflow.cli
 
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.utils.data.sampler import SubsetRandomSampler
 from torchvision import datasets, transforms
 
 from src.models.conv import SimpleConvNet
@@ -24,13 +26,31 @@ def train(epoch, model, loader, optimizer, device=torch.device("cpu"), log_inter
         loss.backward()
         optimizer.step()
         if batch_idx % log_interval == 0:
-            logging.log(logging.INFO,
-                        'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, batch_idx * len(data), len(loader.dataset),
-                       100. * batch_idx / len(loader), loss.data.item()))
+            samples_processed = batch_idx * data.shape[0]
+            total_samples = len(loader.sampler)
+            logging.info('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                epoch, samples_processed, total_samples,
+                100. * batch_idx / len(loader), loss.data.item()))
             step = epoch * len(loader) + batch_idx
-            mlflow.log_metric('train_loss', loss.data.item())
+            mlflow.log_metric('train_loss', loss.item())
 
+
+def valid(epoch, model, loader, device):
+    loss = 0.
+    correct = 0.
+    n = len(loader.sampler)
+    model.eval()
+    for data, target in loader:
+        data, target = data.to(device), target.to(device)
+        output = model.forward(data)
+        prediction = torch.argmax(output, dim=1)
+        correct += torch.sum(prediction == target).item()
+        loss += F.nll_loss(output, target).item()
+    loss /= n
+    acc = correct / n
+    logging.info('Train Epoch: {} Validation Loss: {:.6f} Validation Accuracy: {:.4f}'.format(
+        epoch, loss, acc))
+    return loss, acc
 
 if __name__ == "__main__":
     # Command-line arguments
@@ -54,7 +74,7 @@ if __name__ == "__main__":
     parser.add_argument('--model-name', type=str, default="")
     parser.add_argument('--log-path', type=str, default="")
     parser.add_argument('--log-file', type=str, default="")
-    parser.add_argument('--restore', type=int, default=0)
+    parser.add_argument('--restore', type=str, default="", help="{'best', 'latest'}")
     parser.add_argument('--checkpoint-path', type=str, default="")
     parser.add_argument('--checkpoint-file', type=str, default="")
 
@@ -66,11 +86,10 @@ if __name__ == "__main__":
 
     rootLogger = logging.getLogger()
     rootLogger.setLevel(logging.INFO)
+    log_file = Path(args.log_path) / f"{args.log_file}.log"
     if args.log_path:
-        log_file = Path(args.log_path) / f"{args.log_file}.log"
         fileHandler = logging.FileHandler(str(log_file))
         rootLogger.addHandler(fileHandler)
-
     consoleHandler = logging.StreamHandler()
     rootLogger.addHandler(consoleHandler)
 
@@ -81,12 +100,21 @@ if __name__ == "__main__":
     kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
     mnist_transforms = transforms.Compose([transforms.ToTensor(),
                                            transforms.Normalize((0.1307,), (0.3081,))])
-    train_ds = datasets.MNIST('./data/', train=True, download=True, transform=mnist_transforms)
-    test_ds = datasets.MNIST('./data/', train=False, download=True, transform=mnist_transforms)
-    train_loader = torch.utils.data.DataLoader(train_ds, batch_size=args.batch_size,
-                                               shuffle=True, **kwargs)
-    test_loader = torch.utils.data.DataLoader(test_ds, batch_size=args.batch_size,
-                                              shuffle=False, **kwargs)
+    ds = datasets.MNIST('./data/', train=True, download=True, transform=mnist_transforms)
+
+    idx = np.arange(len(ds))
+    np.random.shuffle(idx)
+
+    train_fraction = 0.8
+    train_samples = int(train_fraction * len(ds))
+    train_sampler = SubsetRandomSampler(idx[:train_samples])
+    validation_sampler = SubsetRandomSampler(idx[train_samples:])
+
+    train_loader = torch.utils.data.DataLoader(ds, batch_size=args.batch_size,
+                                               sampler=train_sampler, **kwargs)
+
+    validation_loader = torch.utils.data.DataLoader(ds, batch_size=args.batch_size,
+                                                    sampler=validation_sampler)
 
     model = SimpleConvNet()
     if args.cuda:
@@ -95,31 +123,29 @@ if __name__ == "__main__":
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
 
     if args.restore:
-        loaded = utils.load_checkpoint(args.checkpoint_path, args.checkpoint_file)
+        loaded = utils.load_checkpoint(args.checkpoint_path, args.checkpoint_file,
+                                       best=args.restore == 'best')
         model.load_state_dict(loaded['model'])
         optimizer.load_state_dict(loaded['optimizer'])
-        state = loaded['state']
-        params = loaded['params']
-    else:
-        params = vars(args)
-        state = {'epoch': 1}
 
     with mlflow.start_run():
         # Log our parameters into mlflow
-        for key, value in params.items():
+        for key, value in vars(args).items():
             mlflow.log_param(key, value)
         if args.log_path:
             mlflow.log_artifact(str(log_file))
 
-        for epoch in range(state['epoch'], args.epochs + 1):
+        best_loss = 1000000.
+        for epoch in range(1, args.epochs + 1):
             train(epoch, model, train_loader, optimizer, device=train_device,
                   log_interval=args.log_interval)
-            state['epoch'] += 1
+            loss, acc = valid(epoch, model, validation_loader, device=train_device)
             if args.checkpoint_path:
                 save_dict = {'model': model.state_dict(),
-                             'optimizer': optimizer.state_dict(),
-                             'state': state,
-                             'params': params}
+                             'optimizer': optimizer.state_dict()}
                 utils.save_checkpoint(args.checkpoint_path, save_dict, model_name=args.model_name)
-            # test(epoch)
+                if loss < best_loss:
+                    best_loss = loss
+                    utils.save_checkpoint(args.checkpoint_path, save_dict,
+                                          model_name=args.model_name, best=True)
 
