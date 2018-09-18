@@ -130,6 +130,8 @@ if __name__ == "__main__":
             train(epoch, model, train_loader, optimizer, device=train_device,
                   log_interval=args.log_interval)
             loss, acc = valid(epoch, model, validation_loader, device=train_device)
+            mlflow.log_metric('valid_loss', loss)
+            mlflow.log_metric('valid_acc', acc)
             if args.checkpoint_path:
                 save_dict = {'model': model.state_dict(),
                              'optimizer': optimizer.state_dict()}
