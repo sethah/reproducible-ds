@@ -5,8 +5,6 @@ conda_env: environment.yaml
 entry_points:
   main:
     parameters:
-      log_path: {type: string, default: ""}
-      log_file: {type: string, default: ""}
       model_name: {type: string, default: ""}
       checkpoint_path: {type: string, default: ""}
       checkpoint_file: {type: string, default: ""}
@@ -15,19 +13,17 @@ entry_points:
       epochs: {type: int, default: 1}
       restore: {type: str, default: ""}
     command: "python src/train.py --batch-size {batch_size}
-    --epochs {epochs} --log-path {log_path} --log-file {log_file}
+    --epochs {epochs}
     --log-interval 10
     --checkpoint-path {checkpoint_path} --checkpoint-file {checkpoint_file} --restore {restore}
     --model-name {model_name}"
   validate:
     parameters:
-      log_path: {type: string, default: ""}
-      log_file: {type: string, default: ""}
       model_name: {type: string, default: ""}
       model_path: {type: string, default: ""}
       model_file: {type: string, default: ""}
       batch_size: {type: int, default: 32}
 
-    command: "python src/test_mnist.py --batch-size {batch_size} --log-path {log_path}
-    --log-file {log_file} --model-path {model_path} --model-file {model_file}
+    command: "python src/test_mnist.py --batch-size {batch_size}
+    --model-path {model_path} --model-file {model_file}
     --model-name {model_name}"

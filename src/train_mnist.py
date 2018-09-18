@@ -1,6 +1,7 @@
 import numpy as np
 import argparse
 import logging
+from logging.config import fileConfig
 from pathlib import Path
 
 import mlflow
@@ -28,7 +29,7 @@ def train(epoch, model, loader, optimizer, device=torch.device("cpu"), log_inter
         if batch_idx % log_interval == 0:
             samples_processed = batch_idx * data.shape[0]
             total_samples = len(loader.sampler)
-            logging.info('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+            logging.debug('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, samples_processed, total_samples,
                 100. * batch_idx / len(loader), loss.data.item()))
             step = epoch * len(loader) + batch_idx
@@ -48,7 +49,7 @@ def valid(epoch, model, loader, device):
         loss += F.nll_loss(output, target).item()
     loss /= n
     acc = correct / n
-    logging.info('Train Epoch: {} Validation Loss: {:.6f} Validation Accuracy: {:.4f}'.format(
+    logging.debug('Train Epoch: {} Validation Loss: {:.6f} Validation Accuracy: {:.4f}'.format(
         epoch, loss, acc))
     return loss, acc
 
@@ -72,26 +73,17 @@ if __name__ == "__main__":
     parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                         help='how many batches to wait before logging training status')
     parser.add_argument('--model-name', type=str, default="")
-    parser.add_argument('--log-path', type=str, default="")
-    parser.add_argument('--log-file', type=str, default="")
     parser.add_argument('--restore', type=str, default="", help="{'best', 'latest'}")
     parser.add_argument('--checkpoint-path', type=str, default="")
     parser.add_argument('--checkpoint-file', type=str, default="")
 
     args = parser.parse_args()
+    fileConfig("logging_config.ini")
+
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     gpu = torch.device("cuda:0")
     cpu = torch.device("cpu")
     train_device = gpu if args.cuda else cpu
-
-    rootLogger = logging.getLogger()
-    rootLogger.setLevel(logging.INFO)
-    log_file = Path(args.log_path) / f"{args.log_file}.log"
-    if args.log_path:
-        fileHandler = logging.FileHandler(str(log_file))
-        rootLogger.addHandler(fileHandler)
-    consoleHandler = logging.StreamHandler()
-    rootLogger.addHandler(consoleHandler)
 
     torch.manual_seed(args.seed)
     if args.cuda:
@@ -132,8 +124,6 @@ if __name__ == "__main__":
         # Log our parameters into mlflow
         for key, value in vars(args).items():
             mlflow.log_param(key, value)
-        if args.log_path:
-            mlflow.log_artifact(str(log_file))
 
         best_loss = 1000000.
         for epoch in range(1, args.epochs + 1):

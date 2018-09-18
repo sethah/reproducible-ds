@@ -1,13 +1,13 @@
 import numpy as np
 import argparse
 import logging
+from logging.config import fileConfig
 from pathlib import Path
 
 import mlflow
 
 import torch
 import torch.nn.functional as F
-import torch.optim as optim
 from torch.utils.data.sampler import SubsetRandomSampler
 from torchvision import datasets, transforms
 
@@ -28,21 +28,13 @@ if __name__ == "__main__":
     parser.add_argument('--log-file', type=str, default="")
     parser.add_argument('--model-path', type=str, default="")
     parser.add_argument('--model-file', type=str, default="")
-
     args = parser.parse_args()
+    fileConfig("logging_config.ini")
+
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     gpu = torch.device("cuda:0")
     cpu = torch.device("cpu")
     device = gpu if args.cuda else cpu
-
-    rootLogger = logging.getLogger()
-    rootLogger.setLevel(logging.INFO)
-    log_file = Path(args.log_path) / f"{args.log_file}.log"
-    if args.log_path:
-        fileHandler = logging.FileHandler(str(log_file))
-        rootLogger.addHandler(fileHandler)
-    consoleHandler = logging.StreamHandler()
-    rootLogger.addHandler(consoleHandler)
 
     torch.manual_seed(args.seed)
     if args.cuda:
@@ -65,8 +57,6 @@ if __name__ == "__main__":
         # Log our parameters into mlflow
         for key, value in vars(args).items():
             mlflow.log_param(key, value)
-        if args.log_path:
-            mlflow.log_artifact(str(log_file))
 
         loss = 0.
         correct = 0.
@@ -82,5 +72,5 @@ if __name__ == "__main__":
         acc = correct / n
         mlflow.log_metric("test_loss", loss)
         mlflow.log_metric("test_acc", acc)
-        logging.info('Test Loss: {:.6f} Test Accuracy: {:.4f}'.format(loss, acc))
+        logging.debug('Test Loss: {:.6f} Test Accuracy: {:.4f}'.format(loss, acc))
 
