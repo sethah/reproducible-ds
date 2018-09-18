@@ -70,7 +70,7 @@ if __name__ == "__main__":
             loss += F.nll_loss(output, target).item()
         loss /= n
         acc = correct / n
-        mlflow.log_metric("test_loss", loss)
-        mlflow.log_metric("test_acc", acc)
+        cdsw.track_metric("test_loss", loss)
+        cdsw.track_metric("test_acc", acc)
         logging.debug('Test Loss: {:.6f} Test Accuracy: {:.4f}'.format(loss, acc))
 
