@@ -12,7 +12,6 @@ dependencies:
 - pytorch
 - torchvision
 - cookiecutter
-- requests
 - ipython
 - tqdm
 - scikit-learn

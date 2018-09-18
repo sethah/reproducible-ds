@@ -4,7 +4,7 @@ import logging
 from logging.config import fileConfig
 from pathlib import Path
 
-import mlflow
+import cdsw
 
 import torch
 import torch.nn.functional as F
@@ -53,24 +53,23 @@ if __name__ == "__main__":
     loaded = utils.load_checkpoint(args.model_path, checkpoint_file=args.model_file)
     model.load_state_dict(loaded['model'])
 
-    with mlflow.start_run():
-        # Log our parameters into mlflow
-        for key, value in vars(args).items():
-            mlflow.log_param(key, value)
+    # Log our parameters into mlflow
+#    for key, value in vars(args).items():
+#        mlflow.log_param(key, value)
 
-        loss = 0.
-        correct = 0.
-        n = len(loader.dataset)
-        model.eval()
-        for data, target in loader:
-            data, target = data.to(device), target.to(device)
-            output = model.forward(data)
-            prediction = torch.argmax(output, dim=1)
-            correct += torch.sum(prediction == target).item()
-            loss += F.nll_loss(output, target).item()
-        loss /= n
-        acc = correct / n
-        cdsw.track_metric("test_loss", loss)
-        cdsw.track_metric("test_acc", acc)
-        logging.debug('Test Loss: {:.6f} Test Accuracy: {:.4f}'.format(loss, acc))
+    loss = 0.
+    correct = 0.
+    n = len(loader.dataset)
+    model.eval()
+    for data, target in loader:
+        data, target = data.to(device), target.to(device)
+        output = model.forward(data)
+        prediction = torch.argmax(output, dim=1)
+        correct += torch.sum(prediction == target).item()
+        loss += F.nll_loss(output, target).item()
+    loss /= n
+    acc = correct / n
+    cdsw.track_metric("test_loss", loss)
+    cdsw.track_metric("test_acc", acc)
+    logging.debug('Test Loss: {:.6f} Test Accuracy: {:.4f}'.format(loss, acc))
 

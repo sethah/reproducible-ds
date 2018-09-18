@@ -4,8 +4,7 @@ import logging
 from logging.config import fileConfig
 from pathlib import Path
 
-import mlflow
-import mlflow.cli
+import cdsw
 
 import torch
 import torch.nn.functional as F
@@ -33,7 +32,7 @@ def train(epoch, model, loader, optimizer, device=torch.device("cpu"), log_inter
                 epoch, samples_processed, total_samples,
                 100. * batch_idx / len(loader), loss.data.item()))
             step = epoch * len(loader) + batch_idx
-            mlflow.log_metric('train_loss', loss.item())
+            cdsw.track_metric('train_loss', loss.item())
 
 
 def valid(epoch, model, loader, device):
@@ -117,23 +116,20 @@ if __name__ == "__main__":
         lr_sched.load_state_dict(loaded['scheduler'])
         best_loss = loaded.get('best_loss', best_loss)
 
-    with mlflow.start_run():
-        for key, value in vars(args).items():
-            mlflow.log_param(key, value)
+    best_loss = 1000000.
+    for epoch in range(1, args.epochs + 1):
+        train(epoch, model, train_loader, optimizer, device=train_device,
+              log_interval=args.log_interval)
+        loss, acc = valid(epoch, model, validation_loader, device=train_device)
+        cdsw.track_metric('valid_loss', loss)
+        cdsw.track_metric('valid_acc', acc)
+        if args.checkpoint_path:
+            save_dict = {'model': model.state_dict(),
+                         'optimizer': optimizer.state_dict(),
+                         'scheduler': lr_sched.state_dict(),
+                         'best_loss': best_loss}
+            utils.save_checkpoint(args.checkpoint_path, save_dict)
+            if loss < best_loss:
+                best_loss = loss
+                utils.save_checkpoint(args.checkpoint_path, save_dict, best=True)
 
-        for epoch in range(1, args.epochs + 1):
-            lr_sched.step()
-            train(epoch, model, train_loader, optimizer, device=train_device,
-                  log_interval=args.log_interval)
-            loss, acc = valid(epoch, model, validation_loader, device=train_device)
-            mlflow.log_metric('valid_loss', loss)
-            mlflow.log_metric('valid_acc', acc)
-            if args.checkpoint_path:
-                save_dict = {'model': model.state_dict(),
-                             'optimizer': optimizer.state_dict(),
-                             'scheduler': lr_sched.state_dict(),
-                             'best_loss': best_loss}
-                utils.save_checkpoint(args.checkpoint_path, save_dict)
-                if loss < best_loss:
-                    best_loss = loss
-                    utils.save_checkpoint(args.checkpoint_path, save_dict, best=True)

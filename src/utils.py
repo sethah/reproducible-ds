@@ -7,7 +7,8 @@ import torch
 def save_checkpoint(checkpoint_dir, save_dict, file_name=None, best=False):
     checkpoint_dir = Path(checkpoint_dir)
     if not checkpoint_dir.exists():
-        checkpoint_dir.mkdir(parents=True, exist_ok=False)
+        logging.debug(f"Checkpoint path {checkpoint_dir} does not exist. Creating it.")
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
     if file_name is not None:
         save_path = checkpoint_dir / file_name
     else:
