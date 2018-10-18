@@ -13,7 +13,6 @@ dependencies:
 - torchvision
 - cookiecutter
 - requests
-- ignite
 - ipython
 - tqdm
 - scikit-learn
@@ -21,3 +20,4 @@ dependencies:
 - nb_conda
 - pip:
   - mlflow
+  - -e .

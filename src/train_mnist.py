@@ -53,6 +53,7 @@ def valid(epoch, model, loader, device):
         epoch, loss, acc))
     return loss, acc
 
+
 if __name__ == "__main__":
     # Command-line arguments
     parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
@@ -64,32 +65,28 @@ if __name__ == "__main__":
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                         help='learning rate (default: 0.01)')
+    parser.add_argument('--lr-gamma', type=float, default=0.8)
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
                         help='SGD momentum (default: 0.5)')
-    parser.add_argument('--no-cuda', action='store_true', default=False,
-                        help='disables CUDA training')
+    parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
     parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                         help='how many batches to wait before logging training status')
-    parser.add_argument('--model-name', type=str, default="")
-    parser.add_argument('--restore', type=str, default="", help="{'best', 'latest'}")
-    parser.add_argument('--checkpoint-path', type=str, default="")
-    parser.add_argument('--checkpoint-file', type=str, default="")
+    parser.add_argument('--restore', type=str, default=None, help="{'best', 'latest'}")
+    parser.add_argument('--checkpoint-path', type=str, default=None)
 
     args = parser.parse_args()
     fileConfig("logging_config.ini")
 
-    args.cuda = not args.no_cuda and torch.cuda.is_available()
-    gpu = torch.device("cuda:0")
-    cpu = torch.device("cpu")
-    train_device = gpu if args.cuda else cpu
+    use_gpu = args.gpu and torch.cuda.is_available()
+    train_device = torch.device("cuda:0") if use_gpu else torch.device("cpu")
 
     torch.manual_seed(args.seed)
-    if args.cuda:
+    if use_gpu:
         torch.cuda.manual_seed(args.seed)
 
-    kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
+    kwargs = {'num_workers': 1, 'pin_memory': True} if use_gpu else {}
     mnist_transforms = transforms.Compose([transforms.ToTensor(),
                                            transforms.Normalize((0.1307,), (0.3081,))])
     ds = datasets.MNIST('./data/', train=True, download=True, transform=mnist_transforms)
@@ -108,25 +105,24 @@ if __name__ == "__main__":
     validation_loader = torch.utils.data.DataLoader(ds, batch_size=args.batch_size,
                                                     sampler=validation_sampler)
 
-    model = SimpleConvNet()
-    if args.cuda:
-        model = model.to(gpu)
-
+    model = SimpleConvNet().to(train_device)
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
+    lr_sched = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.lr_gamma)
 
+    best_loss = 1000000.
     if args.restore:
-        loaded = utils.load_checkpoint(args.checkpoint_path, args.checkpoint_file,
-                                       best=args.restore == 'best')
+        loaded = utils.load_checkpoint(args.checkpoint_path, best=args.restore == 'best')
         model.load_state_dict(loaded['model'])
         optimizer.load_state_dict(loaded['optimizer'])
+        lr_sched.load_state_dict(loaded['scheduler'])
+        best_loss = loaded.get('best_loss', best_loss)
 
     with mlflow.start_run():
-        # Log our parameters into mlflow
         for key, value in vars(args).items():
             mlflow.log_param(key, value)
 
-        best_loss = 1000000.
         for epoch in range(1, args.epochs + 1):
+            lr_sched.step()
             train(epoch, model, train_loader, optimizer, device=train_device,
                   log_interval=args.log_interval)
             loss, acc = valid(epoch, model, validation_loader, device=train_device)
@@ -134,10 +130,10 @@ if __name__ == "__main__":
             mlflow.log_metric('valid_acc', acc)
             if args.checkpoint_path:
                 save_dict = {'model': model.state_dict(),
-                             'optimizer': optimizer.state_dict()}
-                utils.save_checkpoint(args.checkpoint_path, save_dict, model_name=args.model_name)
+                             'optimizer': optimizer.state_dict(),
+                             'scheduler': lr_sched.state_dict(),
+                             'best_loss': best_loss}
+                utils.save_checkpoint(args.checkpoint_path, save_dict)
                 if loss < best_loss:
                     best_loss = loss
-                    utils.save_checkpoint(args.checkpoint_path, save_dict,
-                                          model_name=args.model_name, best=True)
-
+                    utils.save_checkpoint(args.checkpoint_path, save_dict, best=True)
