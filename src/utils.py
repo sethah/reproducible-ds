@@ -21,6 +21,6 @@ def load_checkpoint(checkpoint_dir, best=False):
     checkpoint_dir = Path(checkpoint_dir)
     suffix = "latest.pkl" if not best else "best.pkl"
     load_path = checkpoint_dir / suffix
-    loaded = torch.load(load_path)
+    loaded = torch.load(load_path, map_location=lambda storage, loc: storage)
     logging.debug(f"Loaded checkpoint from {load_path.resolve().as_uri()}")
     return loaded

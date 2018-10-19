@@ -8,6 +8,7 @@ import mlflow
 
 import torch
 import torch.nn.functional as F
+import torch.nn as nn
 from torch.utils.data.sampler import SubsetRandomSampler
 from torchvision import datasets, transforms
 
@@ -19,38 +20,31 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
     parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                         help='input batch size for training (default: 64)')
-    parser.add_argument('--no-cuda', action='store_true', default=False,
-                        help='disables CUDA training')
+    parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
-    parser.add_argument('--model-name', type=str, default="")
-    parser.add_argument('--log-path', type=str, default="")
-    parser.add_argument('--log-file', type=str, default="")
-    parser.add_argument('--model-path', type=str, default="")
-    parser.add_argument('--model-file', type=str, default="")
+    parser.add_argument('--model-name', type=str, default="simple")
+    parser.add_argument('--checkpoint-path', type=str, default=None)
     args = parser.parse_args()
     fileConfig("logging_config.ini")
 
-    args.cuda = not args.no_cuda and torch.cuda.is_available()
-    gpu = torch.device("cuda:0")
-    cpu = torch.device("cpu")
-    device = gpu if args.cuda else cpu
+    use_gpu = args.gpu and torch.cuda.is_available()
+    device = torch.device("cuda:0") if use_gpu else torch.device("cpu")
 
     torch.manual_seed(args.seed)
-    if args.cuda:
+    if use_gpu:
         torch.cuda.manual_seed(args.seed)
 
-    kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
+    kwargs = {'num_workers': 1, 'pin_memory': True} if use_gpu else {}
     mnist_transforms = transforms.Compose([transforms.ToTensor(),
                                            transforms.Normalize((0.1307,), (0.3081,))])
     ds = datasets.MNIST('./data/', train=False, download=True, transform=mnist_transforms)
     loader = torch.utils.data.DataLoader(ds, batch_size=args.batch_size)
 
-    model = SimpleConvNet()
-    if args.cuda:
-        model = model.to(gpu)
+    model = SimpleConvNet().to(device)
+    criterion = nn.CrossEntropyLoss().to(device)
 
-    loaded = utils.load_checkpoint(args.model_path, checkpoint_file=args.model_file)
+    loaded = loaded = utils.load_checkpoint(args.checkpoint_path, best=True)
     model.load_state_dict(loaded['model'])
 
     with mlflow.start_run():
@@ -67,7 +61,7 @@ if __name__ == "__main__":
             output = model.forward(data)
             prediction = torch.argmax(output, dim=1)
             correct += torch.sum(prediction == target).item()
-            loss += F.nll_loss(output, target).item()
+            loss += criterion(output, target).item()
         loss /= n
         acc = correct / n
         mlflow.log_metric("test_loss", loss)

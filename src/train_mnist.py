@@ -9,6 +9,7 @@ import mlflow.cli
 
 import torch
 import torch.nn.functional as F
+import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data.sampler import SubsetRandomSampler
 from torchvision import datasets, transforms
@@ -17,13 +18,13 @@ from src.models.conv import SimpleConvNet
 import src.utils as utils
 
 
-def train(epoch, model, loader, optimizer, device=torch.device("cpu"), log_interval=100):
+def train(epoch, model, loader, optimizer, criterion, device=torch.device("cpu"), log_interval=100):
     model.train()
     for batch_idx, (data, target) in enumerate(loader):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
         output = model.forward(data)
-        loss = F.nll_loss(output, target)
+        loss = criterion(output, target)
         loss.backward()
         optimizer.step()
         if batch_idx % log_interval == 0:
@@ -36,7 +37,7 @@ def train(epoch, model, loader, optimizer, device=torch.device("cpu"), log_inter
             mlflow.log_metric('train_loss', loss.item())
 
 
-def valid(epoch, model, loader, device):
+def valid(epoch, model, criterion, loader, device):
     loss = 0.
     correct = 0.
     n = len(loader.sampler)
@@ -46,7 +47,7 @@ def valid(epoch, model, loader, device):
         output = model.forward(data)
         prediction = torch.argmax(output, dim=1)
         correct += torch.sum(prediction == target).item()
-        loss += F.nll_loss(output, target).item()
+        loss += criterion(output, target).item()
     loss /= n
     acc = correct / n
     logging.debug('Train Epoch: {} Validation Loss: {:.6f} Validation Accuracy: {:.4f}'.format(
@@ -61,7 +62,7 @@ if __name__ == "__main__":
                         help='input batch size for training (default: 64)')
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
-    parser.add_argument('--epochs', type=int, default=10, metavar='N',
+    parser.add_argument('--epochs', type=int, default=3, metavar='N',
                         help='number of epochs to train (default: 10)')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                         help='learning rate (default: 0.01)')
@@ -71,6 +72,7 @@ if __name__ == "__main__":
     parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--seed', type=int, default=1, metavar='S',
                         help='random seed (default: 1)')
+    parser.add_argument('--model-name', type=str, default='simple')
     parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                         help='how many batches to wait before logging training status')
     parser.add_argument('--restore', type=str, default=None, help="{'best', 'latest'}")
@@ -81,6 +83,7 @@ if __name__ == "__main__":
 
     use_gpu = args.gpu and torch.cuda.is_available()
     train_device = torch.device("cuda:0") if use_gpu else torch.device("cpu")
+    logging.debug(f"Training on device {train_device}")
 
     torch.manual_seed(args.seed)
     if use_gpu:
@@ -105,7 +108,17 @@ if __name__ == "__main__":
     validation_loader = torch.utils.data.DataLoader(ds, batch_size=args.batch_size,
                                                     sampler=validation_sampler)
 
-    model = SimpleConvNet().to(train_device)
+    if args.model_name == 'simple':
+      model = SimpleConvNet()
+    else:
+      conv = FullyConvolutional()
+      fake_img = torch.randn(4, 1, 28, 28)
+      fake_out = conv(fake_img)
+      out_features = fake_out.view(fake_out.shape[0], -1).shape[1]
+      model = nn.Sequential(conv, DenseHead(out_features, 10))
+    model = model.to(train_device)
+    
+    criterion = nn.CrossEntropyLoss().to(train_device)
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
     lr_sched = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=args.lr_gamma)
 
@@ -123,9 +136,9 @@ if __name__ == "__main__":
 
         for epoch in range(1, args.epochs + 1):
             lr_sched.step()
-            train(epoch, model, train_loader, optimizer, device=train_device,
-                  log_interval=args.log_interval)
-            loss, acc = valid(epoch, model, validation_loader, device=train_device)
+            train(epoch, model, train_loader, optimizer, criterion, device=train_device,
+              log_interval=args.log_interval)
+            loss, acc = valid(epoch, model, criterion, validation_loader, device=train_device)
             mlflow.log_metric('valid_loss', loss)
             mlflow.log_metric('valid_acc', acc)
             if args.checkpoint_path:
